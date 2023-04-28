@@ -7,7 +7,7 @@ class ENO_advection:
     The class to solve the 1-D linear advection equation using ENO 
     reconstruction scheme of order 3.
     '''
-    def __init__(self, a = 1.0, ni = 100, cfl = 0.5):
+    def __init__(self, a = 1.0, ni = 100, cfl = 0.5, order = 3):
         '''
         ### Description
 
@@ -17,7 +17,8 @@ class ENO_advection:
         `ni`: The number of internal cells. Default value is 100.
         '''
 
-        self.ib = 2 # third order scheme requires 2 ghost cells
+        self.order = order
+        self.ib = order-1 # k-th order scheme requires k-1 ghost cells
         self.ni = ni
         self.im = ni + self.ib # to iterate through all the internal cells: for i in range(ib, im)
         self.a = a
@@ -29,9 +30,9 @@ class ENO_advection:
         self.u = np.zeros(2 * self.ib + ni) # solution vector
         self.u_m = np.zeros_like(self.u) # stores the middle step (previous solution) in Runge-Kutta scheme
         
-        delx = 1.0 / float(ni)
-        self.xc = np.linspace(-3.0/2.0 * delx - 0.5, 0.5 + 3.0/2.0 * delx, 2 * self.ib + ni)
-        self.xface = np.linspace(-0.5 - 2 * delx, 0.5 + 2*delx, 2 * self.ib + ni + 1)
+        ib = self.ib
+        self.xc = np.linspace((1.0/2.0 - ib) * delx - 0.5, 0.5 + (ib - 1.0/2.0) * delx, 2 * self.ib + ni)
+        self.xface = np.linspace(-0.5 - ib * delx, 0.5 + ib*delx, 2 * self.ib + ni + 1)
 
         # interface values
         self.ul = np.zeros(2 * self.ib + ni+1)
@@ -40,6 +41,7 @@ class ENO_advection:
 
         # Newton's devided difference
         self.V = np.zeros((2 * self.ib + ni + 1, 3)) 
+        self.global_t = 0.0
 
     def set_initial(self):
         '''
@@ -65,12 +67,13 @@ class ENO_advection:
         Set the value in the boundary ghost cells
         '''
         # left boundary
-        self.u[self.ib-2] = self.u[self.im-2]
-        self.u[self.ib-1] = self.u[self.im-1]
+        for k in range(1, self.order):
+            self.u[self.ib-k] = self.u[self.im-k]
 
         # right boundary
-        self.u[self.im] = self.u[self.ib]
-        self.u[self.im+1] = self.u[self.ib+1]
+        for k in range(self.order-1):
+            self.u[self.im + k] = self.u[self.ib + k]
+
 
     def NDD(self):
         '''
@@ -95,10 +98,12 @@ class ENO_advection:
         '''
         nn = self.u.shape[0] # total number of cells, including the ghost cells
 
-        self.V = np.zeros((nn+1, 3))
+        self.V = np.zeros((nn+1, self.order))
         self.V[0:nn, 0] = self.u.copy()                                # order-1: V[x_{i-1/2}, x_{i+1/2}]
-        self.V[0:nn-1, 1] = self.V[1:nn, 0] - self.V[0:nn-1, 0]        # order-2: V[x_{i-1/2}, x_{i+1/2}, x_{i+3/2}]
-        self.V[0:nn-2, 2] = self.V[1:nn-1, 1] - self.V[0:nn-2, 1]      # order-3: V[x_{i-1/2}, x_{i+1/2}, x_{i+3/2}, x_{i+5/2}]
+
+        for k in range(1, self.order):
+            self.V[0:nn-k, k] = self.V[1:nn - (k-1), k-1] - self.V[0:nn-k, k-1]        # order-(k+1): V[x_{i-1/2}, x_{i+1/2},..., x_{i+k+1/2}]
+        # self.V[0:nn-2, 2] = self.V[1:nn-1, 1] - self.V[0:nn-2, 1]      # order-3: V[x_{i-1/2}, x_{i+1/2}, x_{i+3/2}, x_{i+5/2}]
 
     def ENO_weight(self, r: int):
         '''
@@ -106,20 +111,20 @@ class ENO_advection:
 
         Compute the ENO weight based on the left shift of the stencil
         '''
-        crj = np.zeros(3)
-        for j in range(3):
+        crj = np.zeros(self.order)
+        for j in range(self.order):
             #crj[j]
-            for m in range(j+1, 4):
+            for m in range(j+1, self.order+1):
                 de = 1.0
                 no = 0.0
-                for l in range(4):
+                for l in range(self.order+1):
                     if l != m:
                         de = de * (m - l)
                 
-                for l in range(4):
+                for l in range(self.order+1):
                     if l != m:
                         ee = 1.0
-                        for q in range(4):
+                        for q in range(self.order+1):
                             if q != m and q != l:
                                 ee *= (r - q + 1)
                         no += ee
@@ -142,14 +147,14 @@ class ENO_advection:
         for i in range(ib, im):
             # initial stencil
             stencil = np.array([i, i+1])
-            for k in range(2):
+            for k in range(self.order-1): # the number of interfaces in the stencil: k+2
                 L, R = stencil[0], stencil[-1]
 
                 # determine the expanded stencil by evaluating NDD
                 stencilL = np.append(L-1, stencil)
                 stencilR = np.append(stencil, R+1)
 
-                V2L = self.V[stencilL[0], k+1]
+                V2L = self.V[stencilL[0], k+1] # note that subscript k+1 retrives order k+2 diveded difference
                 V2R = self.V[stencilR[0], k+1]
 
                 if abs(V2L) < abs(V2R):
@@ -158,6 +163,16 @@ class ENO_advection:
                     stencil = stencilR.copy()
         
             # final stencil is now stored in `stencil`. Evaluate the stencil shift.
+            '''
+            +-------------+-------------+------------+
+            |             |< i          |            |
+            |< stencil[0] |< stencil[1] |< stencil[2]|
+            |             |             |            |
+            +-------------+-------------+------------+
+             ^center used  ^center used   ^center used
+
+            The plot above is an example of 3rd-order stencil, where the left shift r = 1.
+            '''
             r = i - stencil[0]
 
             # obtain the ENO weight
@@ -196,5 +211,6 @@ class ENO_advection:
             self.u[self.ib:self.im] = alpha1[j] * self.u_m[self.ib:self.im] + alpha2[j] * self.u[self.ib:self.im] - \
                      alpha3[j] * self.dt/self.delx * (self.flux[self.ib+1:self.im+1] - self.flux[self.ib:self.im])
             
+        self.global_t += self.dt
         return self.dt
 
