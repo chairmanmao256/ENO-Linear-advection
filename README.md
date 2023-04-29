@@ -1,6 +1,8 @@
 # ENO scheme for 1-D linear advection equation
 
-k-th order ENO scheme for 1-D linear advection equation is implemented in `ENO.py`. The problem is solved by intereacting with the `ENO` class. The construction function of the `ENO` class contains the following arguments:
+k-th order ENO scheme for 1-D linear advection equation is implemented in `ENO.py`. Written by WCY at Tsinghua University. It is the homework for the Course: Advanced Computational Fluid Mechanics, 2023.
+
+The 1-D linear advection problem is solved by intereacting with the `ENO` class. The construction function of the `ENO` class contains the following arguments:
 
 ```
 a: The convection speed, default value is 1
